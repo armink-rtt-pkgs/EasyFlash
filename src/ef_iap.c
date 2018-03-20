@@ -33,8 +33,6 @@
 /* IAP section backup application section start address in flash */
 static uint32_t bak_app_start_addr = 0;
 
-static uint32_t get_bak_app_start_addr(void);
-
 /**
  * Flash IAP function initialize.
  *
@@ -66,7 +64,7 @@ EfErrCode ef_iap_init(void) {
 EfErrCode ef_erase_bak_app(size_t app_size) {
     EfErrCode result = EF_NO_ERR;
 
-    result = ef_port_erase(get_bak_app_start_addr(), app_size);
+    result = ef_port_erase(ef_get_bak_app_start_addr(), app_size);
     switch (result) {
     case EF_NO_ERR: {
         EF_INFO("Erased backup area application OK.\n");
@@ -82,19 +80,20 @@ EfErrCode ef_erase_bak_app(size_t app_size) {
     return result;
 }
 
-
 /**
- * Erase user old application
+ * Erase user old application by using specified erase function.
  *
  * @param user_app_addr application entry address
  * @param app_size application size
+ * @param app_erase user specified application erase function
  *
  * @return result
  */
-EfErrCode ef_erase_user_app(uint32_t user_app_addr, size_t app_size) {
+EfErrCode ef_erase_spec_user_app(uint32_t user_app_addr, size_t app_size,
+        EfErrCode (*app_erase)(uint32_t addr, size_t size)) {
     EfErrCode result = EF_NO_ERR;
 
-    result = ef_port_erase(user_app_addr, app_size);
+    result = app_erase(user_app_addr, app_size);
     switch (result) {
     case EF_NO_ERR: {
         EF_INFO("Erased user application OK.\n");
@@ -108,6 +107,18 @@ EfErrCode ef_erase_user_app(uint32_t user_app_addr, size_t app_size) {
     }
 
     return result;
+}
+
+/**
+ * Erase user old application by using default `ef_port_erase` function.
+ *
+ * @param user_app_addr application entry address
+ * @param app_size application size
+ *
+ * @return result
+ */
+EfErrCode ef_erase_user_app(uint32_t user_app_addr, size_t app_size) {
+    return ef_erase_spec_user_app(user_app_addr, app_size, ef_port_erase);
 }
 
 /**
@@ -156,11 +167,11 @@ EfErrCode ef_write_data_to_bak(uint8_t *data, size_t size, size_t *cur_size,
         size = total_size - *cur_size;
     }
 
-    result = ef_port_write(get_bak_app_start_addr() + *cur_size, (uint32_t *) data, size);
+    result = ef_port_write(ef_get_bak_app_start_addr() + *cur_size, (uint32_t *) data, size);
     switch (result) {
     case EF_NO_ERR: {
         *cur_size += size;
-        EF_INFO("Write data to backup area OK.\n");
+        EF_DEBUG("Write data to backup area OK.\n");
         break;
     }
     case EF_WRITE_ERR: {
@@ -173,14 +184,16 @@ EfErrCode ef_write_data_to_bak(uint8_t *data, size_t size, size_t *cur_size,
 }
 
 /**
- * Copy backup area application to application entry.
+ * Copy backup area application to application entry by using specified write function.
  *
  * @param user_app_addr application entry address
  * @param app_size application size
+ * @param app_write user specified application write function
  *
  * @return result
  */
-EfErrCode ef_copy_app_from_bak(uint32_t user_app_addr, size_t app_size) {
+EfErrCode ef_copy_spec_app_from_bak(uint32_t user_app_addr, size_t app_size,
+        EfErrCode (*app_write)(uint32_t addr, const uint32_t *buf, size_t size)) {
     size_t cur_size;
     uint32_t app_cur_addr, bak_cur_addr;
     EfErrCode result = EF_NO_ERR;
@@ -190,9 +203,9 @@ EfErrCode ef_copy_app_from_bak(uint32_t user_app_addr, size_t app_size) {
     /* cycle copy data */
     for (cur_size = 0; cur_size < app_size; cur_size += sizeof(buff)) {
         app_cur_addr = user_app_addr + cur_size;
-        bak_cur_addr = get_bak_app_start_addr() + cur_size;
+        bak_cur_addr = ef_get_bak_app_start_addr() + cur_size;
         ef_port_read(bak_cur_addr, buff, sizeof(buff));
-        result = ef_port_write(app_cur_addr, buff, sizeof(buff));
+        result = app_write(app_cur_addr, buff, sizeof(buff));
         if (result != EF_NO_ERR) {
             break;
         }
@@ -213,6 +226,18 @@ EfErrCode ef_copy_app_from_bak(uint32_t user_app_addr, size_t app_size) {
 }
 
 /**
+ * Copy backup area application to application entry by using default `ef_port_write` function.
+ *
+ * @param user_app_addr application entry address
+ * @param app_size application size
+ *
+ * @return result
+ */
+EfErrCode ef_copy_app_from_bak(uint32_t user_app_addr, size_t app_size) {
+    return ef_copy_spec_app_from_bak(user_app_addr, app_size, ef_port_write);
+}
+
+/**
  * Copy backup area bootloader to bootloader entry.
  *
  * @param bl_addr bootloader entry address
@@ -230,7 +255,7 @@ EfErrCode ef_copy_bl_from_bak(uint32_t bl_addr, size_t bl_size) {
     /* cycle copy data by 32bytes buffer */
     for (cur_size = 0; cur_size < bl_size; cur_size += sizeof(buff)) {
         bl_cur_addr = bl_addr + cur_size;
-        bak_cur_addr = get_bak_app_start_addr() + cur_size;
+        bak_cur_addr = ef_get_bak_app_start_addr() + cur_size;
         ef_port_read(bak_cur_addr, buff, sizeof(buff));
         result = ef_port_write(bl_cur_addr, buff, sizeof(buff));
         if (result != EF_NO_ERR) {
@@ -257,7 +282,7 @@ EfErrCode ef_copy_bl_from_bak(uint32_t bl_addr, size_t bl_size) {
  *
  * @return size
  */
-static uint32_t get_bak_app_start_addr(void) {
+uint32_t ef_get_bak_app_start_addr(void) {
     return bak_app_start_addr;
 }
 
