@@ -108,6 +108,8 @@ static bool env_crc_is_ok(void);
  * @return result
  */
 EfErrCode ef_env_init(ef_env const *default_env, size_t default_env_size) {
+    extern EfErrCode ef_env_auto_update(void);
+
     EfErrCode result = EF_NO_ERR;
 
     EF_ASSERT(ENV_AREA_SIZE);
@@ -149,6 +151,12 @@ EfErrCode ef_env_init(ef_env const *default_env, size_t default_env_size) {
         init_ok = true;
     }
 
+#ifdef EF_ENV_AUTO_UPDATE
+    if (init_ok == true) {
+        ef_env_auto_update();
+    }
+#endif
+
     return result;
 }
 
@@ -158,6 +166,8 @@ EfErrCode ef_env_init(ef_env const *default_env, size_t default_env_size) {
  * @return result
  */
 EfErrCode ef_env_set_default(void){
+    extern EfErrCode ef_env_ver_num_set_default(void);
+
     EfErrCode result = EF_NO_ERR;
     size_t i;
 
@@ -183,6 +193,10 @@ EfErrCode ef_env_set_default(void){
     /* unlock the ENV cache */
     ef_port_env_unlock();
 
+#ifdef EF_ENV_AUTO_UPDATE
+    ef_env_ver_num_set_default();
+#endif
+
     result = ef_save_env();
 
 #ifdef EF_ENV_USING_PFS_MODE
@@ -192,7 +206,6 @@ EfErrCode ef_env_set_default(void){
         result = ef_save_env();
     }
 #endif
-
 
     return result;
 }

@@ -26,7 +26,17 @@
  * Created on: 2015-01-14
  */
 
+#include <stdlib.h>
 #include <easyflash.h>
+
+#define STR(s)                         #s
+#define TO_STRING(x)                   STR(x)
+
+#ifndef EF_ENV_VER_NUM
+#define EF_ENV_VER_NUM                 0
+#endif
+
+#define ENV_VER_NAME                   "__ENV_VER"
 
 static const uint32_t crc32_table[] =
 {
@@ -96,4 +106,31 @@ uint32_t ef_calc_crc32(uint32_t crc, const void *buf, size_t size)
     }
 
     return crc ^ ~0U;
+}
+
+/**
+ * Set ENV version number to latest default.
+ *
+ * @return result
+ */
+EfErrCode ef_env_ver_num_set_default(void)
+{
+    return ef_set_env(ENV_VER_NAME, TO_STRING(EF_ENV_VER_NUM));
+}
+
+/**
+ * Auto update ENV to latest default when EF_ENV_VER is grater than cur ENV version number.
+ *
+ * @return result
+ */
+EfErrCode ef_env_auto_update(void)
+{
+    EfErrCode result = EF_NO_ERR;
+    const char *cur_ver_num = ef_get_env(ENV_VER_NAME);
+
+    if (cur_ver_num == NULL || atoi(cur_ver_num) != EF_ENV_VER_NUM) {
+        result = ef_env_set_default();
+    }
+
+    return result;
 }

@@ -126,4 +126,7 @@
 #define PRINT_DEBUG
 #endif
 
+//#define EF_ENV_AUTO_UPDATE
+#define EF_ENV_VER_NUM                 0
+
 #endif /* EF_CFG_H_ */
