@@ -34,7 +34,7 @@
 #if defined(EF_USING_ENV)
 static void __setenv(uint8_t argc, char **argv) {
     uint8_t i;
-    char c_value = NULL;
+    char c_value = '\0';
     char *value = &c_value;
     if (argc > 3) {
         /* environment variable value string together */

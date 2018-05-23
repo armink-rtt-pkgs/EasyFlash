@@ -26,7 +26,6 @@
  * Created on: 2015-01-14
  */
 
-#include <stdlib.h>
 #include <easyflash.h>
 
 static const uint32_t crc32_table[] =

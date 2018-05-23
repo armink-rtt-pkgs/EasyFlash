@@ -54,16 +54,30 @@
 
 /* the user setting size of ENV, must be word alignment */
 #define ENV_USER_SETTING_SIZE     (PKG_EASYFLASH_ENV_SETTING_SIZE)
+
+#ifdef PKG_EASYFLASH_ENV_AUTO_UPDATE
+/* Auto update ENV to latest default when current ENV version number is changed. */
+#define EF_ENV_AUTO_UPDATE
+/**
+ * ENV version number defined by user.
+ * Please change it when your firmware add a new ENV to default_env_set.
+ */
+#define EF_ENV_VER_NUM            PKG_EASYFLASH_ENV_VER_NUM
+#endif
+
+
 #endif /* PKG_EASYFLASH_ENV */
 
 /* using IAP function */
-#ifdef PKG_EASYFLASH_LOG
+#ifdef PKG_EASYFLASH_IAP
 #define EF_USING_IAP
 #endif
 
 /* using save log function */
-#ifdef PKG_EASYFLASH_IAP
+#ifdef PKG_EASYFLASH_LOG
 #define EF_USING_LOG
+/* saved log area size */
+#define LOG_AREA_SIZE             (PKG_EASYFLASH_LOG_AREA_SIZE)
 #endif
 
 /* the minimum size of flash erasure */
@@ -82,14 +96,14 @@
  * |(IAP)Downloaded application |   IAP already downloaded application, unfixed size
  * |----------------------------|
  *
- * @note all area size must be aligned with EF_ERASE_MIN_SIZE
- * @note EasyFlash will use ram to buffered the ENV. At some time flash's EF_ERASE_MIN_SIZE is so big,
- *       and you want use ENV size is less than it. So you must defined ENV_USER_SETTING_SIZE for ENV.
+ * @note all area sizes must be aligned with EF_ERASE_MIN_SIZE
+ * @note EasyFlash will use ram to buffer the ENV. At some point flash's EF_ERASE_MIN_SIZE may become so big,
+ *       and you want to keep ENV size smaller. To do it you must define ENV_USER_SETTING_SIZE for ENV.
  * @note ENV area size has some limitations in different modes.
- *       1.Normal mode: no more limitations
- *       2.Wear leveling mode: system section will used an flash section and the data section will used at least 2 flash sections
- *       3.Power fail safeguard mode: ENV area will has an backup. It is twice as normal mode.
- *       4.wear leveling and power fail safeguard mode: The required capacity will be 2 times the total capacity in wear leveling mode.
+ *       1.Normal mode: no limitations
+ *       2.Wear leveling mode: system section will used a flash section and the data section will use at least 2 flash sections
+ *       3.Power fail safeguard mode: ENV area will has a backup. It is twice as normal mode.
+ *       4.Wear leveling and power fail safeguard mode: The required capacity will be 2 times the total capacity in wear leveling mode.
  *       For example:
  *       The EF_ERASE_MIN_SIZE is 128K and the ENV_USER_SETTING_SIZE: 2K. The ENV_AREA_SIZE in different mode you can define
  *       1.Normal mode: 1*EF_ERASE_MIN_SIZE
@@ -104,29 +118,24 @@
 #ifndef EF_ENV_USING_PFS_MODE
     #ifndef EF_ENV_USING_WL_MODE
         /* ENV area total bytes size in normal mode. */
-        #define ENV_AREA_SIZE          (1 * EF_ERASE_MIN_SIZE)      /* 4K */
+        #define ENV_AREA_SIZE          (1 * EF_ERASE_MIN_SIZE)
     #else
         /* ENV area total bytes size in wear leveling mode. */
-        #define ENV_AREA_SIZE          (4 * EF_ERASE_MIN_SIZE)      /* 16K */
+        #define ENV_AREA_SIZE          (4 * EF_ERASE_MIN_SIZE)
     #endif
 #else
     #ifndef EF_ENV_USING_WL_MODE
         /* ENV area total bytes size in power fail safeguard mode. */
-        #define ENV_AREA_SIZE          (2 * EF_ERASE_MIN_SIZE)      /* 8K */
+        #define ENV_AREA_SIZE          (2 * EF_ERASE_MIN_SIZE)
     #else
         /* ENV area total bytes size in wear leveling and power fail safeguard mode. */
-        #define ENV_AREA_SIZE          (6 * EF_ERASE_MIN_SIZE)      /* 24K */
+        #define ENV_AREA_SIZE          (6 * EF_ERASE_MIN_SIZE)
     #endif
 #endif
-/* saved log area size */
-#define LOG_AREA_SIZE             (254 * EF_ERASE_MIN_SIZE)      /* 1016K */
 
 /* print debug information of flash */
 #ifdef PKG_EASYFLASH_DEBUG
 #define PRINT_DEBUG
 #endif
-
-//#define EF_ENV_AUTO_UPDATE
-#define EF_ENV_VER_NUM                 0
 
 #endif /* EF_CFG_H_ */

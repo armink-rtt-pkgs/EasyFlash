@@ -37,13 +37,13 @@
 /**
  * ENV area has 2 sections
  * 1. System section
- *    It storage ENV parameters. (Units: Word)
+ *    It storages ENV parameters. (Units: Word)
  * 2. Data section
- *    It storage all ENV. Storage format is key=value\0.
+ *    It storages all ENV. Storage format is key=value\0.
  *    All ENV must be 4 bytes alignment. The remaining part must fill '\0'.
  *
  * @note Word = 4 Bytes in this file
- * @note It will has two ENV areas(Area0, Area1) when used power fail safeguard mode.
+ * @note When using power fail safeguard mode, it has two ENV areas(Area0, Area1).
  */
 
 /* flash ENV parameters index and size in system section */
@@ -356,7 +356,7 @@ static char *find_env(const char *key) {
     char *env_start, *env_end, *env, *found_env = NULL;
     size_t key_len = strlen(key), env_len;
 
-    if (*key == NULL) {
+    if ((key == NULL) || *key == '\0') {
         EF_INFO("Flash ENV name must be not empty!\n");
         return NULL;
     }
@@ -405,7 +405,7 @@ static EfErrCode create_env(const char *key, const char *value) {
     EF_ASSERT(key);
     EF_ASSERT(value);
 
-    if (*key == NULL) {
+    if ((key == NULL) || *key == '\0') {
         EF_INFO("Flash ENV name must be not empty!\n");
         return EF_ENV_NAME_ERR;
     }
@@ -440,7 +440,7 @@ static EfErrCode del_env(const char *key){
 
     EF_ASSERT(key);
 
-    if (*key == NULL) {
+    if ((key == NULL) || *key == '\0') {
         EF_INFO("Flash ENV name must be not NULL!\n");
         return EF_ENV_NAME_ERR;
     }
@@ -499,7 +499,7 @@ EfErrCode ef_set_env(const char *key, const char *value) {
     ef_port_env_lock();
 
     /* if ENV value is empty, delete it */
-    if (*value == NULL) {
+    if ((value == NULL) || *value == '\0') {
         result = del_env(key);
     } else {
         old_env = find_env(key);
@@ -573,7 +573,7 @@ void ef_print_env(void) {
         for (j = 0; j < 4; j++) {
             c = (*env_cache_data_addr) >> (8 * j);
             ef_print("%c", c);
-            if (c == NULL) {
+            if (c == '\0') {
                 ef_print("\n");
                 break;
             }
@@ -591,7 +591,7 @@ void ef_print_env(void) {
 #endif
 
 #ifdef EF_ENV_AUTO_UPDATE
-    ef_print("ver_num: %d\n", env_cache[ENV_PARAM_INDEX_VER_NUM]);
+    ef_print("ver num: %d\n", env_cache[ENV_PARAM_INDEX_VER_NUM]);
 #endif
 }
 
