@@ -7,7 +7,7 @@
 - [fal : Flash 抽象层](https://github.com/RT-Thread-packages/fal)
 - [SFUD : 万能 SPI Flash 驱动库](https://github.com/RT-Thread/rt-thread/tree/master/components/drivers/spi/sfud)
 
-如果你的 Flash 驱动使用的是上面中的一种，那么移植 EasyFlash 将会非常简单，具体参考下面的文档。如果没有使用上面的驱动，请参考 EasyFlash 的 [移植文档](https://gitee.com/Armink/EasyFlash/blob/master/docs/zh/port.md) 进行移植。
+如果你的 Flash 驱动使用的是上面中的一种，那么移植 EasyFlash 将会非常简单，具体参考下面的文档。如果没有使用上面的驱动，请参考 EasyFlash 的 [移植文档](https://github.com/armink/EasyFlash/blob/master/docs/zh/port.md) 进行移植。在 EasyFlash [官方仓库](https://github.com/armink/EasyFlash) 下有很多 demo，也可以参考。
 
 ## 2、基于 fal : Flash 抽象层
 
@@ -22,7 +22,7 @@
 
 ## 3、基于 SFUD : 万能 SPI Flash 驱动库
 
-移植参考文件位于 [/ports/ef_sfud_port.c](ef_sfud_port.c) 。先将该文件拷贝至项目中，在文件中的 `ef_port_init` 有关于 SFUD Flash 设备的获取的相关的代码，如下所示
+移植参考文件位于 [/ports/ef_sfud_port.c](ef_sfud_port.c) 。先将该文件拷贝至项目中，在文件中的 `ef_port_init` 函数中有关于 SFUD Flash 设备的获取的相关的代码，如下所示
 
 ```c
 static const sfud_flash *flash;
@@ -40,4 +40,4 @@ EfErrCode ef_port_init(ef_env const **default_env, size_t *default_env_size) {
 }
 ```
 
-上述代码中的 `w25q64` ，是在 Flash 设备初始化时，执行 `w25q64 = rt_sfud_flash_probe("w25q64", "spi10");` 成功的返回值。该对象是 RT-Thread 的 SPI Flash 对象，其内部元素 `user_data` 中存放了 SFUD Flash 对象，将其赋值给静态的 `flash` 变量即可。
+上述代码中的 `w25q64` ，是在 Flash 设备初始化时，执行 `w25q64 = rt_sfud_flash_probe("w25q64", "spi10");` 成功的返回值。该对象是 RT-Thread 的 SPI Flash 对象，其内部元素 `user_data` 里存放了 SFUD Flash 对象，将其赋值给静态的 `flash` 变量即可。
