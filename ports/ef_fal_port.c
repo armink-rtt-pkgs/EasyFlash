@@ -191,7 +191,7 @@ void ef_log_info(const char *format, ...) {
 
     /* args point to the first variable parameter */
     va_start(args, format);
-    ef_print("[Flash]");
+    ef_print("[Flash] ");
     /* must use vprintf to print */
     rt_vsprintf(log_buf, format, args);
     ef_print("%s", log_buf);
