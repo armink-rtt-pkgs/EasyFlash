@@ -171,7 +171,7 @@ void ef_log_debug(const char *file, const long line, const char *format, ...) {
 
     /* args point to the first variable parameter */
     va_start(args, format);
-    ef_print("[Flash](%s:%ld) ", file, line);
+    ef_print("[Flash] (%s:%ld) ", file, line);
     /* must use vprintf to print */
     rt_vsprintf(log_buf, format, args);
     ef_print("%s", log_buf);
