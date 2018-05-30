@@ -1,17 +1,17 @@
 # EasyFlash 
 
----
+[![GitHub release](https://img.shields.io/github/release/armink/EasyFlash.svg)](https://github.com/armink/EasyFlash/releases/latest) [![GitHub commits](https://img.shields.io/github/commits-since/armink/EasyFlash/3.1.0.svg)](https://github.com/armink/EasyFlash/compare/3.1.0...master) [![MIT licensed](https://img.shields.io/badge/license-MIT-blue.svg)](https://raw.githubusercontent.com/armink/EasyFlash/master/LICENSE)
 
 ## 1、介绍（[English](#1-introduction)）
 
 [EasyFlash](https://github.com/armink/EasyFlash)是一款开源的轻量级嵌入式Flash存储器库，主要为MCU(Micro Control Unit)提供便捷、通用的上层应用接口，使得开发者更加高效实现基于的Flash存储器常见应用开发。该库目前提供 **三大实用功能** ：
 
 - **Env** 快速保存产品参数，支持 **写平衡（磨损平衡）** 及 **掉电保护** 模式
- 
+
 EasyFlash不仅能够实现对产品的 **设定参数** 或 **运行日志** 等信息的掉电保存功能，还封装了简洁的 **增加、删除、修改及查询** 方法， 降低了开发者对产品参数的处理难度，也保证了产品在后期升级时拥有更好的扩展性。让Flash变为NoSQL（非关系型数据库）模型的小型键值（Key-Value）存储数据库。
 
 - **IAP** 在线升级再也不是难事儿
- 
+
 该库封装了IAP(In-Application Programming)功能常用的接口，支持CRC32校验，同时支持Bootloader及Application的升级。
 
 - **Log** 无需文件系统，日志可直接存储在Flash上
@@ -72,14 +72,14 @@ Demo平台：STM32F103RET6 + RT-Thread 1.2.2 + Env(2K bytes)
 
 ## 1 Introduction
 
-[EasyFlash](https://github.com/armink/EasyFlash) is an open source lightweight embedded flash memory library. It provide convenient application interface for MCU (Micro Control Unit). The developers can achieve more efficient and common application development based on Flash memory. The library currently provides **Three useful features** ：
+[EasyFlash](https://github.com/armink/EasyFlash) is an open source lightweight embedded flash memory library. It provides convenient application interface for MCU (Micro Control Unit). The developers can achieve more efficient and common application development based on Flash memory. The library currently provides **three useful features** ：
 
 - **Env(environment variables)** Fast Saves product parameters. Support **write balance mode(wear leveling)** and **power fail safeguard**. 
 
-EasyFlash can be store **setting parameters** or **running logs** and other information which you want to power down to save. And it packaged add, delete, modify and query method. It make developer easy to process the product parameters. And make sure the product has better scalability after upgrade. Let Flash becomes a small NoSQL (non-relational databases) model and Key-Value stores database.
+EasyFlash can store **setting parameters** or **running logs** and other information which you want to keep after power down. It contains add, delete, modify and query methods. It helps developer to process the product parameters, and makes sure the product has better scalability after upgrade. Turns the Flash into a small NoSQL (non-relational databases) model and Key-Value stores database.
 
 - **IAP** : online upgrade is no longer a difficult thing.
- 
+
 The library encapsulates the IAP (In-Application Programming) feature common interface. Support CRC32 checksum. While supporting the bootloader and application upgrade.
 
 - **Log** : The logs can store to product's flash which has no file-system.
@@ -97,7 +97,7 @@ Actual  : ROM: 6K bytes     RAM: 2.6K bytes
 
 ### 1.2 Supported platforms
 
-Hardware platform has been ported SPI Flash, `stm32f10x` and `stm32f4xx` series of on-chip Flash. These are my product platforms. Remaining platform porting difficulty is little. The porting just modify [`\easyflash\port\ef_port.c`](https://github.com/armink/EasyFlash/blob/master/easyflash/port/ef_port.c) file. Implement erase, write, read, print feature.
+Hardware platform has been ported SPI Flash, `stm32f10x` and `stm32f4xx` series of on-chip Flash. These are my product platforms. Remaining platform porting difficulty is little. To port it just modify [`\easyflash\port\ef_port.c`](https://github.com/armink/EasyFlash/blob/master/easyflash/port/ef_port.c) file. Implement erase, write, read, print feature.
 
 Welcome everyone to **fork and pull request**([Github](https://github.com/armink/EasyFlash)|[OSChina](http://git.oschina.net/armink/EasyFlash)|[Coding](https://coding.net/u/armink/p/EasyFlash/git)). If you think this open source project is awesome. You can press the **Star** on the top right corner of [project home page](https://github.com/armink/EasyFlash), and recommend it to more friends.
 
@@ -105,7 +105,7 @@ Welcome everyone to **fork and pull request**([Github](https://github.com/armink
 
 ### 2.1 Env(KV database)
 
-The figure below shows an ENV's common interface be called by the console(terminal). These interfaces are supported by the application layer called.
+The figure below shows an ENV's common interface be called by the console (terminal). These interfaces are supported by the application layer called.
 
 - 1.Create temperature environment variable. It's name is `temp` and value is `123`;
 - 2.Save temperature to flash and reboot;
@@ -118,19 +118,19 @@ The figure below shows an ENV's common interface be called by the console(termin
 
 ### 2.2 IAP
 
-The figure below shows the process of upgrade software through the console by IAP. It use this library comes with IAP function interface. Uses a serial port + Ymodem protocol mode. You can also be achieved through CAN, 485, Ethernet bus to online upgrade.
+The figure below shows the process of upgrading software through the console by IAP. It use this library comes with IAP function interface. It uses a serial port + Ymodem protocol mode. You can also be achieved through CAN, 485, Ethernet bus to online upgrade.
 
 ![easy_flash_iap](https://raw.githubusercontent.com/armink/EasyFlash/master/docs/en/images/IapDemo.gif)
 
 ### 2.3 Log
 
-The following figure is the output log process through the console. The logs will save to flash at the same time. Then reboot the and read the logs from flash. At last will clean all logs which on flash.
+The following figure is the output of the log process through the console. The logs are saved to flash at real time. Then the board is rebooted and the logs back are read back from flash. At last logs will be erased.
 
 ![easy_flash_log](https://raw.githubusercontent.com/armink/EasyFlash/master/docs/en/images/LogDemo.gif)
 
 ## 3 Documents
 
-All documents is in the [`\docs\en\`](https://github.com/armink/EasyFlash/tree/master/docs/en) folder. Please **read the documents** before port and use it.
+All documents are in the [`\docs\en\`](https://github.com/armink/EasyFlash/tree/master/docs/en) folder. Please **read the documents** before porting it and using it.
 
 ## 4 License
 
