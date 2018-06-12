@@ -20,6 +20,8 @@
 
 再修改该宏定义为 EasyFlash 备份区位于 fal 分区表中的分区名即可，默认是 "ef"。
 
+> 注意：在使用 fal 时，由于上面指定好了会使用整个 `"ef"` 分区给 EasyFlash，同时 `ef_fal_port.c` 中的移植也是基于分区读写，所以配置的 EasyFlash 起始地址应从 **0** 地址开始，即`PKG_EASYFLASH_START_ADDR` 配置应为 0。
+
 ## 3、基于 SFUD : 万能 SPI Flash 驱动库
 
 移植参考文件位于 [/ports/ef_sfud_port.c](ef_sfud_port.c) 。先将该文件拷贝至项目中，在文件中的 `ef_port_init` 函数中有关于 SFUD Flash 设备的获取的相关的代码，如下所示
