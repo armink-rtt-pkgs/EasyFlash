@@ -48,6 +48,7 @@ EasyFlash: Lightweight embedded flash memory library.
     - 磨损平衡模式
     - 掉电保护模式
     - 磨损平衡 + 掉电保护模式
+- `ENV setting size. MUST be word alignment` ：设定的 ENV 大小，也就是可以存放 ENV 缓存区的最大长度。注意：目前 EasyFlash 的 ENV 都会在 RAM 中新建一个同样长度的缓冲区，该数值越大，RAM 消耗越多。
 - `Auto update ENV to latest default when current ENV version number is changed.`：是否启用环境变量自动更新功能。启动这个功能后，环境变量将在其版本号发生变化时自动更新。
 - `LOG: Save logs on flash`：日志功能，可以将日志顺序保存至 Flash 中。还可以配合 EasyLogger 完成产品日志的掉电存储。
 - `IAP: In Application Programming`：IAP 在线升级功能，开启后将提供一些 IAP 功能里常用的 API 。
