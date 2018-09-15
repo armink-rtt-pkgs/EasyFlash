@@ -34,8 +34,7 @@
 #if defined(EF_USING_ENV)
 static void __setenv(uint8_t argc, char **argv) {
     uint8_t i;
-    char c_value = '\0';
-    char *value = &c_value;
+
     if (argc > 3) {
         /* environment variable value string together */
         for (i = 0; i < argc - 2; i++) {
@@ -43,9 +42,9 @@ static void __setenv(uint8_t argc, char **argv) {
         }
     }
     if (argc == 1) {
-        ef_set_env(value, value);
+        rt_kprintf("Please input: setenv <key> [value]\n");
     } else if (argc == 2) {
-        ef_set_env(argv[1], value);
+        ef_set_env(argv[1], NULL);
     } else {
         ef_set_env(argv[1], argv[2]);
     }
