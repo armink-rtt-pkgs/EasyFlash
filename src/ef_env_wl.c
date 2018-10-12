@@ -113,7 +113,9 @@ static EfErrCode del_env(const char *key);
 static EfErrCode save_cur_using_data_addr(uint32_t cur_data_addr);
 static uint32_t calc_env_crc(void);
 static bool env_crc_is_ok(void);
+#ifdef EF_ENV_AUTO_UPDATE
 static EfErrCode env_auto_update(void);
+#endif
 
 /**
  * Flash ENV initialize.
@@ -1048,7 +1050,7 @@ static EfErrCode env_auto_update(void)
     ef_port_env_lock();
 
     /* read ENV version number from flash*/
-    ef_port_read(get_env_system_addr() + ENV_PARAM_INDEX_VER_NUM * 4,
+    ef_port_read(get_cur_using_data_addr() + ENV_PARAM_INDEX_VER_NUM * 4,
                  &env_cache[ENV_PARAM_INDEX_VER_NUM] , 4);
 
     /* check version number */
