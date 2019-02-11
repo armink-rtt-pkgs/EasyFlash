@@ -83,8 +83,6 @@ EfErrCode ef_port_init(ef_env const **default_env, size_t *default_env_size) {
 EfErrCode ef_port_read(uint32_t addr, uint32_t *buf, size_t size) {
     EfErrCode result = EF_NO_ERR;
 
-    EF_ASSERT(size % 4 == 0);
-
     sfud_read(flash, addr, size, (uint8_t *)buf);
 
     return result;
@@ -128,8 +126,6 @@ EfErrCode ef_port_erase(uint32_t addr, size_t size) {
 EfErrCode ef_port_write(uint32_t addr, const uint32_t *buf, size_t size) {
     EfErrCode result = EF_NO_ERR;
     sfud_err sfud_result = SFUD_SUCCESS;
-
-    EF_ASSERT(size % 4 == 0);
 
     sfud_result = sfud_write(flash, addr, size, (const uint8_t *)buf);
 
