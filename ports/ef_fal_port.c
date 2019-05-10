@@ -30,7 +30,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
-#include <sfud.h>
 #include <rthw.h>
 #include <rtthread.h>
 #include <fal.h>
