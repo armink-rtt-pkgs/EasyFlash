@@ -40,9 +40,14 @@
 #endif
 
 /* the ENV max name length must less then it */
+#ifndef EF_ENV_NAME_MAX
 #define EF_ENV_NAME_MAX                          32
+#endif
+
 /* magic word(`E`, `F`, `4`, `0`) */
 #define SECTOR_MAGIC_WORD                        0x30344645
+/* magic word(`K`, `V`, `4`, `0`) */
+#define ENV_MAGIC_WORD                           0x3034564B
 
 /* the using status sector table length */
 #ifndef USING_SECTOR_TABLE_LEN
@@ -62,6 +67,24 @@
 /* the total remain empty sector threshold before GC */
 #ifndef EF_GC_EMPTY_SEC_THRESHOLD
 #define EF_GC_EMPTY_SEC_THRESHOLD                1
+#endif
+
+/* the ENV cache table size, it will improve ENV search speed when using cache */
+#ifndef EF_ENV_CACHE_TABLE_SIZE
+#define EF_ENV_CACHE_TABLE_SIZE                  16
+#endif
+
+/* the sector cache table size, it will improve ENV save speed when using cache */
+#ifndef EF_SECTOR_CACHE_TABLE_SIZE
+#define EF_SECTOR_CACHE_TABLE_SIZE               4
+#endif
+
+#if EF_ENV_CACHE_TABLE_SIZE > 0xFFFF
+#error "The ENV cache table size must less than 0xFFFF"
+#endif
+
+#if (EF_ENV_CACHE_TABLE_SIZE > 0) && (EF_SECTOR_CACHE_TABLE_SIZE > 0)
+#define EF_ENV_USING_CACHE
 #endif
 
 /* the sector is not combined value */
@@ -107,6 +130,7 @@
 #define SECTOR_HDR_DATA_SIZE                     (EF_WG_ALIGN(sizeof(struct sector_hdr_data)))
 #define SECTOR_DIRTY_OFFSET                      ((unsigned long)(&((struct sector_hdr_data *)0)->status_table.dirty))
 #define ENV_HDR_DATA_SIZE                        (EF_WG_ALIGN(sizeof(struct env_hdr_data)))
+#define ENV_MAGIC_OFFSET                         ((unsigned long)(&((struct env_hdr_data *)0)->magic))
 #define ENV_LEN_OFFSET                           ((unsigned long)(&((struct env_hdr_data *)0)->len))
 #define ENV_NAME_LEN_OFFSET                      ((unsigned long)(&((struct env_hdr_data *)0)->name_len))
 
@@ -168,6 +192,7 @@ typedef struct sector_meta_data *sector_meta_data_t;
 
 struct env_hdr_data {
     uint8_t status_table[ENV_STATUS_TABLE_SIZE]; /**< ENV node status, @see node_status_t */
+    uint32_t magic;                              /**< magic word(`K`, `V`, `4`, `0`) */
     uint32_t len;                                /**< ENV node total length (header + name + value), must align by EF_WRITE_GRAN */
     uint32_t crc32;                              /**< ENV node crc32(name_len + data_len + name + value) */
     uint8_t name_len;                            /**< name length */
@@ -176,9 +201,10 @@ struct env_hdr_data {
 typedef struct env_hdr_data *env_hdr_data_t;
 
 struct env_meta_data {
-    bool crc_is_ok;                              /**< ENV node CRC32 check is OK */
     env_status_t status;                         /**< ENV node status, @see node_status_t */
+    bool crc_is_ok;                              /**< ENV node CRC32 check is OK */
     uint8_t name_len;                            /**< name length */
+    uint32_t magic;                              /**< magic word(`K`, `V`, `4`, `0`) */
     uint32_t len;                                /**< ENV node total length (header + name + value), must align by EF_WRITE_GRAN */
     uint32_t value_len;                          /**< value length */
     char name[EF_ENV_NAME_MAX];                  /**< name */
@@ -188,6 +214,19 @@ struct env_meta_data {
     } addr;
 };
 typedef struct env_meta_data *env_meta_data_t;
+
+struct env_cache_node {
+    uint16_t name_crc;                           /**< ENV name's CRC32 low 16bit value */
+    uint16_t active;                             /**< ENV node access active degree */
+    uint32_t addr;                               /**< ENV node address */
+};
+typedef struct env_cache_node *env_cache_node_t;
+
+struct sector_cache_node {
+    uint32_t addr;                               /**< sector start address */
+    uint32_t empty_addr;                         /**< sector empty address */
+};
+typedef struct sector_cache_node *sector_cache_node_t;
 
 static void gc_collect(void);
 
@@ -201,6 +240,15 @@ static size_t default_env_set_size = 0;
 static bool init_ok = false;
 /* request a GC check */
 static bool gc_request = false;
+/* is in recovery check status when first reboot */
+static bool in_recovery_check = false;
+
+#ifdef EF_ENV_USING_CACHE
+/* ENV cache table */
+struct env_cache_node env_cache_table[EF_ENV_CACHE_TABLE_SIZE] = { 0 };
+/* sector cache table, it caching the sector info which status is current using */
+struct sector_cache_node sector_cache_table[EF_SECTOR_CACHE_TABLE_SIZE] = { 0 };
+#endif /* EF_ENV_USING_CACHE */
 
 static size_t set_status(uint8_t status_table[], size_t status_num, size_t status_index)
 {
@@ -282,9 +330,183 @@ static size_t read_status(uint32_t addr, uint8_t status_table[], size_t total_nu
     return get_status(status_table, total_num);
 }
 
+#ifdef EF_ENV_USING_CACHE
+/*
+ * It's only caching the current using status sector's empty_addr
+ */
+static void update_sector_cache(uint32_t sec_addr, uint32_t empty_addr)
+{
+    size_t i, empty_index = EF_SECTOR_CACHE_TABLE_SIZE;
+
+    for (i = 0; i < EF_SECTOR_CACHE_TABLE_SIZE; i++) {
+        if ((empty_addr > sec_addr) && (empty_addr < sec_addr + SECTOR_SIZE)) {
+            /* update the sector empty_addr in cache */
+            if (sector_cache_table[i].addr == sec_addr) {
+                sector_cache_table[i].addr = sec_addr;
+                sector_cache_table[i].empty_addr = empty_addr;
+                return;
+            } else if ((sector_cache_table[i].addr == FAILED_ADDR) && (empty_index == EF_SECTOR_CACHE_TABLE_SIZE)) {
+                empty_index = i;
+            }
+        } else if (sector_cache_table[i].addr == sec_addr) {
+            /* delete the sector which status is not current using */
+            sector_cache_table[i].addr = FAILED_ADDR;
+            return;
+        }
+    }
+    /* add the sector empty_addr to cache */
+    if (empty_index < EF_SECTOR_CACHE_TABLE_SIZE) {
+        sector_cache_table[empty_index].addr = sec_addr;
+        sector_cache_table[empty_index].empty_addr = empty_addr;
+    }
+}
+
+/*
+ * Get sector info from cache. It's return true when cache is hit.
+ */
+static bool get_sector_from_cache(uint32_t sec_addr, uint32_t *empty_addr)
+{
+    size_t i;
+
+    for (i = 0; i < EF_SECTOR_CACHE_TABLE_SIZE; i++) {
+        if (sector_cache_table[i].addr == sec_addr) {
+            if (empty_addr) {
+                *empty_addr = sector_cache_table[i].empty_addr;
+            }
+            return true;
+        }
+    }
+
+    return false;
+}
+
+static void update_env_cache(const char *name, size_t name_len, uint32_t addr)
+{
+    size_t i, empty_index = EF_ENV_CACHE_TABLE_SIZE, min_activity_index = EF_ENV_CACHE_TABLE_SIZE;
+    uint16_t name_crc = (uint16_t) (ef_calc_crc32(0, name, name_len) >> 16), min_activity = 0xFFFF;
+
+    for (i = 0; i < EF_ENV_CACHE_TABLE_SIZE; i++) {
+        if (addr != FAILED_ADDR) {
+            /* update the ENV address in cache */
+            if (env_cache_table[i].name_crc == name_crc) {
+                env_cache_table[i].addr = addr;
+                return;
+            } else if ((env_cache_table[i].addr == FAILED_ADDR) && (empty_index == EF_ENV_CACHE_TABLE_SIZE)) {
+                empty_index = i;
+            } else if (env_cache_table[i].addr != FAILED_ADDR) {
+                if (env_cache_table[i].active > 0) {
+                    env_cache_table[i].active--;
+                }
+                if (env_cache_table[i].active < min_activity) {
+                    min_activity_index = i;
+                    min_activity = env_cache_table[i].active;
+                }
+            }
+        } else if (env_cache_table[i].name_crc == name_crc) {
+            /* delete the ENV */
+            env_cache_table[i].addr = FAILED_ADDR;
+            env_cache_table[i].active = 0;
+            return;
+        }
+    }
+    /* add the ENV to cache, using LRU (Least Recently Used) like algorithm */
+    if (empty_index < EF_ENV_CACHE_TABLE_SIZE) {
+        env_cache_table[empty_index].addr = addr;
+        env_cache_table[empty_index].name_crc = name_crc;
+        env_cache_table[empty_index].active = 0;
+    } else if (min_activity_index < EF_ENV_CACHE_TABLE_SIZE) {
+        env_cache_table[min_activity_index].addr = addr;
+        env_cache_table[min_activity_index].name_crc = name_crc;
+        env_cache_table[min_activity_index].active = 0;
+    }
+}
+
+/*
+ * Get ENV info from cache. It's return true when cache is hit.
+ */
+static bool get_env_from_cache(const char *name, size_t name_len, uint32_t *addr)
+{
+    size_t i;
+    uint16_t name_crc = (uint16_t) (ef_calc_crc32(0, name, name_len) >> 16);
+
+    for (i = 0; i < EF_ENV_CACHE_TABLE_SIZE; i++) {
+        if ((env_cache_table[i].addr != FAILED_ADDR) && (env_cache_table[i].name_crc == name_crc)) {
+            char saved_name[EF_ENV_NAME_MAX];
+            /* read the ENV name in flash */
+            ef_port_read(env_cache_table[i].addr + ENV_HDR_DATA_SIZE, (uint32_t *) saved_name, EF_ENV_NAME_MAX);
+            if (!strncmp(name, saved_name, name_len)) {
+                *addr = env_cache_table[i].addr;
+                if (env_cache_table[i].active >= 0xFFFF - EF_ENV_CACHE_TABLE_SIZE) {
+                    env_cache_table[i].active = 0xFFFF;
+                } else {
+                    env_cache_table[i].active += EF_ENV_CACHE_TABLE_SIZE;
+                }
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+#endif /* EF_ENV_USING_CACHE */
+
+/*
+ * find the continue 0xFF flash address to end address
+ */
+static uint32_t continue_ff_addr(uint32_t start, uint32_t end)
+{
+    uint8_t buf[32], last_data = 0x00;
+    size_t i, addr = start;
+
+    for (; start < end; start += sizeof(buf)) {
+        ef_port_read(start, (uint32_t *) buf, sizeof(buf));
+        for (i = 0; i < sizeof(buf) && start + i < end; i++) {
+            if (last_data != 0xFF && buf[i] == 0xFF) {
+                addr = start + i;
+            }
+            last_data = buf[i];
+        }
+    }
+
+    if (last_data == 0xFF) {
+        return EF_WG_ALIGN(addr);
+    } else {
+        return end;
+    }
+}
+
+/*
+ * find the next ENV address by magic word on the flash
+ */
+static uint32_t find_next_env_addr(uint32_t start, uint32_t end)
+{
+    uint8_t buf[32];
+    uint32_t start_bak = start, i;
+    uint32_t magic;
+
+#ifdef EF_ENV_USING_CACHE
+    uint32_t empty_env;
+
+    if (get_sector_from_cache(EF_ALIGN_DOWN(start, SECTOR_SIZE), &empty_env) && start == empty_env) {
+        return FAILED_ADDR;
+    }
+#endif /* EF_ENV_USING_CACHE */
+
+    for (; start < end; start += (sizeof(buf) - sizeof(uint32_t))) {
+        ef_port_read(start, (uint32_t *) buf, sizeof(buf));
+        for (i = 0; i < sizeof(buf) - sizeof(uint32_t) && start + i < end; i++) {
+            magic = buf[i] + (buf[i + 1] << 8) + (buf[i + 2] << 16) + (buf[i + 3] << 24);
+            if (magic == ENV_MAGIC_WORD && (start + i - ENV_MAGIC_OFFSET) >= start_bak) {
+                return start + i - ENV_MAGIC_OFFSET;
+            }
+        }
+    }
+
+    return FAILED_ADDR;
+}
+
 static uint32_t get_next_env_addr(sector_meta_data_t sector, env_meta_data_t pre_env)
 {
-    uint8_t status_table[ENV_STATUS_TABLE_SIZE];
     uint32_t addr = FAILED_ADDR;
 
     if (sector->status.store == SECTOR_STORE_EMPTY) {
@@ -296,8 +518,16 @@ static uint32_t get_next_env_addr(sector_meta_data_t sector, env_meta_data_t pre
         addr = sector->addr + SECTOR_HDR_DATA_SIZE;
     } else {
         if (pre_env->addr.start <= sector->addr + SECTOR_SIZE) {
-            /* next ENV address */
-            addr = pre_env->addr.start + pre_env->len;
+            if (pre_env->crc_is_ok) {
+                addr = pre_env->addr.start + pre_env->len;
+            } else {
+                /* when pre_env CRC check failed, maybe the flash has error data
+                 * find_next_env_addr after pre_env address */
+                addr = pre_env->addr.start + EF_WG_ALIGN(1);
+            }
+            /* check and find next ENV address */
+            addr = find_next_env_addr(addr, sector->addr + SECTOR_SIZE - SECTOR_HDR_DATA_SIZE);
+
             if (addr > sector->addr + SECTOR_SIZE || pre_env->len == 0) {
                 //TODO 扇区连续模式
                 return FAILED_ADDR;
@@ -307,13 +537,8 @@ static uint32_t get_next_env_addr(sector_meta_data_t sector, env_meta_data_t pre
             return FAILED_ADDR;
         }
     }
-    /* check ENV status, it's ENV_UNUSED when not using */
-    if (read_status(addr, status_table, ENV_STATUS_NUM) != ENV_UNUSED) {
-        return addr;
-    } else {
-        /* no ENV */
-        return FAILED_ADDR;
-    }
+
+    return addr;
 }
 
 static EfErrCode read_env(env_meta_data_t env)
@@ -328,7 +553,7 @@ static EfErrCode read_env(env_meta_data_t env)
     env->status = (env_status_t) get_status(env_hdr.status_table, ENV_STATUS_NUM);
     env->len = env_hdr.len;
 
-    if (env->len == ~0UL || env->len > ENV_AREA_SIZE) {
+    if (env->len == ~0UL || env->len > ENV_AREA_SIZE || env->len < ENV_NAME_LEN_OFFSET) {
         /* the ENV length was not write, so reserved the meta data for current ENV */
         env->len = ENV_HDR_DATA_SIZE;
         if (env->status != ENV_ERR_HDR) {
@@ -405,6 +630,14 @@ static EfErrCode read_sector_meta_data(uint32_t addr, sector_meta_data_t sector,
             sector->remain = SECTOR_SIZE - SECTOR_HDR_DATA_SIZE;
         } else if (sector->status.store == SECTOR_STORE_USING) {
             struct env_meta_data env_meta;
+
+#ifdef EF_ENV_USING_CACHE
+            if (get_sector_from_cache(addr, &sector->empty_env)) {
+                sector->remain = SECTOR_SIZE - (sector->empty_env - sector->addr);
+                return result;
+            }
+#endif /* EF_ENV_USING_CACHE */
+
             sector->remain = SECTOR_SIZE - SECTOR_HDR_DATA_SIZE;
             env_meta.addr.start = FAILED_ADDR;
             while ((env_meta.addr.start = get_next_env_addr(sector, &env_meta)) != FAILED_ADDR) {
@@ -420,6 +653,22 @@ static EfErrCode read_sector_meta_data(uint32_t addr, sector_meta_data_t sector,
                 sector->empty_env += env_meta.len;
                 sector->remain -= env_meta.len;
             }
+            /* check the empty ENV address by read continue 0xFF on flash  */
+            {
+                uint32_t ff_addr;
+
+                ff_addr = continue_ff_addr(sector->empty_env, sector->addr + SECTOR_SIZE);
+                /* check the flash data is clean */
+                if (sector->empty_env != ff_addr) {
+                    /* update the sector information */
+                    sector->empty_env = ff_addr;
+                    sector->remain = SECTOR_SIZE - (ff_addr - sector->addr);
+                }
+            }
+
+#ifdef EF_ENV_USING_CACHE
+            update_sector_cache(sector->addr, sector->empty_env);
+#endif
         }
     }
 
@@ -496,11 +745,35 @@ static bool find_env_cb(env_meta_data_t env, void *arg1, void *arg2)
     return false;
 }
 
-static bool find_env(const char *key, env_meta_data_t env)
+static bool find_env_no_cache(const char *key, env_meta_data_t env)
 {
     bool find_ok = false;
 
     env_iterator(env, (void *)key, &find_ok, find_env_cb);
+
+    return find_ok;
+}
+
+static bool find_env(const char *key, env_meta_data_t env)
+{
+    bool find_ok = false;
+
+#ifdef EF_ENV_USING_CACHE
+    size_t key_len = strlen(key);
+
+    if (get_env_from_cache(key, key_len, &env->addr.start)) {
+        read_env(env);
+        return true;
+    }
+#endif /* EF_ENV_USING_CACHE */
+
+    find_ok = find_env_no_cache(key, env);
+
+#ifdef EF_ENV_USING_CACHE
+    if (find_ok) {
+        update_env_cache(key, key_len, env->addr.start);
+    }
+#endif /* EF_ENV_USING_CACHE */
 
     return find_ok;
 }
@@ -544,11 +817,11 @@ static size_t get_env(const char *key, void *value_buf, size_t buf_len, size_t *
  * @param key ENV name
  * @param value_buf ENV blob buffer
  * @param buf_len ENV blob buffer length
- * @param value_len return the length of the value saved on the flash, 0: NOT found
+ * @param saved_value_len return the length of the value saved on the flash, 0: NOT found
  *
  * @return the actually get size on successful
  */
-size_t ef_get_env_blob(const char *key, void *value_buf, size_t buf_len, size_t *value_len)
+size_t ef_get_env_blob(const char *key, void *value_buf, size_t buf_len, size_t *saved_value_len)
 {
     size_t read_len = 0;
 
@@ -560,7 +833,7 @@ size_t ef_get_env_blob(const char *key, void *value_buf, size_t buf_len, size_t 
     /* lock the ENV cache */
     ef_port_env_lock();
 
-    read_len = get_env(key, value_buf, buf_len, value_len);
+    read_len = get_env(key, value_buf, buf_len, saved_value_len);
 
     /* unlock the ENV cache */
     ef_port_env_unlock();
@@ -605,7 +878,7 @@ static EfErrCode write_env_hdr(uint32_t addr, env_hdr_data_t env_hdr) {
         return result;
     }
     /* write other header data */
-    result = ef_port_write(addr + ENV_LEN_OFFSET, &env_hdr->len, sizeof(struct env_hdr_data) - ENV_LEN_OFFSET);
+    result = ef_port_write(addr + ENV_MAGIC_OFFSET, &env_hdr->magic, sizeof(struct env_hdr_data) - ENV_MAGIC_OFFSET);
 
     return result;
 }
@@ -628,6 +901,11 @@ static EfErrCode format_sector(uint32_t addr, uint32_t combined_value)
         sec_hdr.reserved = 0xFFFFFFFF;
         /* save the header */
         result = ef_port_write(addr, (uint32_t *)&sec_hdr, sizeof(struct sector_hdr_data));
+
+#ifdef EF_ENV_USING_CACHE
+        /* delete the sector cache */
+        update_sector_cache(addr, addr + SECTOR_SIZE);
+#endif /* EF_ENV_USING_CACHE */
     }
 
     return result;
@@ -646,6 +924,12 @@ static EfErrCode update_sec_status(sector_meta_data_t sector, size_t new_env_len
         if (sector->remain < EF_SEC_REMAIN_THRESHOLD || sector->remain - new_env_len < EF_SEC_REMAIN_THRESHOLD) {
             /* change the sector status to full */
             result = write_status(sector->addr, status_table, SECTOR_STORE_STATUS_NUM, SECTOR_STORE_FULL);
+
+#ifdef EF_ENV_USING_CACHE
+            /* delete the sector cache */
+            update_sector_cache(sector->addr, sector->addr + SECTOR_SIZE);
+#endif /* EF_ENV_USING_CACHE */
+
             if (is_full) {
                 *is_full = true;
             }
@@ -735,6 +1019,7 @@ static uint32_t alloc_env(sector_meta_data_t sector, size_t env_size)
 static EfErrCode del_env(const char *key, env_meta_data_t old_env, bool complete_del) {
     EfErrCode result = EF_NO_ERR;
     uint32_t dirty_status_addr;
+    static bool last_is_complete_del = false;
 
 #if (ENV_STATUS_TABLE_SIZE >= DIRTY_STATUS_TABLE_SIZE)
     uint8_t status_table[ENV_STATUS_TABLE_SIZE];
@@ -756,8 +1041,18 @@ static EfErrCode del_env(const char *key, env_meta_data_t old_env, bool complete
     /* change and save the new status */
     if (!complete_del) {
         result = write_status(old_env->addr.start, status_table, ENV_STATUS_NUM, ENV_PRE_DELETE);
+        last_is_complete_del = true;
     } else {
         result = write_status(old_env->addr.start, status_table, ENV_STATUS_NUM, ENV_DELETED);
+
+        if (!last_is_complete_del && result == EF_NO_ERR) {
+#ifdef EF_ENV_USING_CACHE
+            /* only delete the ENV in flash and cache when only using del_env(key, env, true) in ef_del_env() */
+            update_env_cache(key, strlen(key), FAILED_ADDR);
+#endif /* EF_ENV_USING_CACHE */
+        }
+
+        last_is_complete_del = false;
     }
 
     dirty_status_addr = EF_ALIGN_DOWN(old_env->addr.start, SECTOR_SIZE) + SECTOR_DIRTY_OFFSET;
@@ -786,14 +1081,16 @@ static EfErrCode move_env(env_meta_data_t env)
     }
 
     if ((env_addr = alloc_env(&sector, env->len)) != FAILED_ADDR) {
-        struct env_meta_data env_bak;
-        char name[EF_ENV_NAME_MAX + 1] = { 0 };
-        strncpy(name, env->name, env->name_len);
-        /* check the ENV is already create success */
-        if (find_env(name, &env_bak)) {
-            /* already create success, don't need to duplicate */
-            result = EF_NO_ERR;
-            goto __exit;
+        if (in_recovery_check) {
+            struct env_meta_data env_bak;
+            char name[EF_ENV_NAME_MAX + 1] = { 0 };
+            strncpy(name, env->name, env->name_len);
+            /* check the ENV in flash is already create success */
+            if (find_env_no_cache(name, &env_bak)) {
+                /* already create success, don't need to duplicate */
+                result = EF_NO_ERR;
+                goto __exit;
+            }
         }
     } else {
         return EF_ENV_FULL;
@@ -803,21 +1100,28 @@ static EfErrCode move_env(env_meta_data_t env)
         uint8_t buf[32];
         size_t len, size, env_len = env->len;
 
+        /* update the new ENV sector status first */
+        update_sec_status(&sector, env->len, NULL);
+
         write_status(env_addr, status_table, ENV_STATUS_NUM, ENV_PRE_WRITE);
-        env_len -= ENV_LEN_OFFSET;
+        env_len -= ENV_MAGIC_OFFSET;
         for (len = 0, size = 0; len < env_len; len += size) {
             if (len + sizeof(buf) < env_len) {
                 size = sizeof(buf);
             } else {
                 size = env_len - len;
             }
-            ef_port_read(env->addr.start + ENV_LEN_OFFSET + len, (uint32_t *) buf, EF_WG_ALIGN(size));
-            result = ef_port_write(env_addr + ENV_LEN_OFFSET + len, (uint32_t *) buf, size);
+            ef_port_read(env->addr.start + ENV_MAGIC_OFFSET + len, (uint32_t *) buf, EF_WG_ALIGN(size));
+            result = ef_port_write(env_addr + ENV_MAGIC_OFFSET + len, (uint32_t *) buf, size);
         }
         write_status(env_addr, status_table, ENV_STATUS_NUM, ENV_WRITE);
+
+#ifdef EF_ENV_USING_CACHE
+        update_sector_cache(EF_ALIGN_DOWN(env_addr, SECTOR_SIZE),
+                env_addr + ENV_HDR_DATA_SIZE + EF_WG_ALIGN(env->name_len) + EF_WG_ALIGN(env->value_len));
+        update_env_cache(env->name, env->name_len, env_addr);
+#endif /* EF_ENV_USING_CACHE */
     }
-    /* update the new ENV sector status */
-    update_sec_status(&sector, env->len, NULL);
 
     EF_DEBUG("Moved the ENV (%.*s) from 0x%08X to 0x%08X.\n", env->name_len, env->name, env->addr.start, env_addr);
 
@@ -869,7 +1173,6 @@ static bool do_gc(sector_meta_data_t sector, void *arg1, void *arg2)
 
     if (sector->check_ok && (sector->status.dirty == SECTOR_DIRTY_TRUE || sector->status.dirty == SECTOR_DIRTY_GC)) {
         uint8_t status_table[DIRTY_STATUS_TABLE_SIZE];
-        //TODO 重复写入安全性验证
         /* change the sector status to GC */
         write_status(sector->addr + SECTOR_DIRTY_OFFSET, status_table, SECTOR_DIRTY_STATUS_NUM, SECTOR_DIRTY_GC);
         /* search all ENV */
@@ -951,6 +1254,7 @@ static EfErrCode create_env_blob(sector_meta_data_t sector, const char *key, con
     }
 
     memset(&env_hdr, 0xFF, sizeof(struct env_hdr_data));
+    env_hdr.magic = ENV_MAGIC_WORD;
     env_hdr.name_len = strlen(key);
     env_hdr.value_len = len;
     env_hdr.len = ENV_HDR_DATA_SIZE + EF_WG_ALIGN(env_hdr.name_len) + EF_WG_ALIGN(env_hdr.value_len);
@@ -982,10 +1286,19 @@ static EfErrCode create_env_blob(sector_meta_data_t sector, const char *key, con
             }
             /* write ENV header data */
             result = write_env_hdr(env_addr, &env_hdr);
+
         }
         /* write key name */
         if (result == EF_NO_ERR) {
             result = align_write(env_addr + ENV_HDR_DATA_SIZE, (uint32_t *) key, env_hdr.name_len);
+
+#ifdef EF_ENV_USING_CACHE
+            if (!is_full) {
+                update_sector_cache(sector->addr,
+                        env_addr + ENV_HDR_DATA_SIZE + EF_WG_ALIGN(env_hdr.name_len) + EF_WG_ALIGN(env_hdr.value_len));
+            }
+            update_env_cache(key, env_hdr.name_len, env_addr);
+#endif /* EF_ENV_USING_CACHE */
         }
         /* write value */
         if (result == EF_NO_ERR) {
@@ -1320,12 +1633,19 @@ static void env_auto_update(void)
 static bool check_sec_hdr_cb(sector_meta_data_t sector, void *arg1, void *arg2)
 {
     if (!sector->check_ok) {
-        EF_INFO("Warning: Sector header check failed. Set it to default.\n");
-        ef_port_env_unlock();
-        ef_env_set_default();
-        ef_port_env_lock();
-        return true;
-    } else if (sector->status.dirty == SECTOR_DIRTY_GC) {
+        size_t *failed_count = arg1;
+
+        EF_INFO("Warning: Sector header check failed. Format this sector (0x%08x).\n", sector->addr);
+        (*failed_count) ++;
+        format_sector(sector->addr, SECTOR_NOT_COMBINED);
+    }
+
+    return false;
+}
+
+static bool check_and_recovery_gc_cb(sector_meta_data_t sector, void *arg1, void *arg2)
+{
+    if (sector->check_ok && sector->status.dirty == SECTOR_DIRTY_GC) {
         /* make sure the GC request flag to true */
         gc_request = true;
         /* resume the GC operate */
@@ -1368,12 +1688,21 @@ EfErrCode ef_load_env(void)
     EfErrCode result = EF_NO_ERR;
     struct env_meta_data env;
     struct sector_meta_data sector;
+    size_t check_failed_count = 0;
 
     /* lock the ENV cache */
     ef_port_env_lock();
 
+    in_recovery_check = true;
     /* check all sector header */
-    sector_iterator(&sector, SECTOR_STORE_UNUSED, NULL, NULL, check_sec_hdr_cb, false);
+    sector_iterator(&sector, SECTOR_STORE_UNUSED, &check_failed_count, NULL, check_sec_hdr_cb, false);
+    /* all sector header check failed */
+    if (check_failed_count == SECTOR_NUM) {
+        EF_INFO("Warning: All sector header check failed. Set it to default.\n");
+        ef_env_set_default();
+    }
+    /* check all sector header for recovery GC */
+    sector_iterator(&sector, SECTOR_STORE_UNUSED, NULL, NULL, check_and_recovery_gc_cb, false);
 
 __retry:
     /* check all ENV for recovery */
@@ -1382,6 +1711,8 @@ __retry:
         gc_collect();
         goto __retry;
     }
+
+    in_recovery_check = false;
 
     /* unlock the ENV cache */
     ef_port_env_unlock();
@@ -1400,17 +1731,31 @@ __retry:
 EfErrCode ef_env_init(ef_env const *default_env, size_t default_env_size) {
     EfErrCode result = EF_NO_ERR;
 
+#ifdef EF_ENV_USING_CACHE
+    size_t i;
+#endif
+
     EF_ASSERT(default_env);
     EF_ASSERT(ENV_AREA_SIZE);
-    EF_ASSERT(EF_ERASE_MIN_SIZE);
     /* must be aligned with erase_min_size */
     EF_ASSERT(ENV_AREA_SIZE % EF_ERASE_MIN_SIZE == 0);
+    /* sector number must be greater than or equal to 2 */
+    EF_ASSERT(SECTOR_NUM >= 2);
     /* must be aligned with write granularity */
     EF_ASSERT((EF_STR_ENV_VALUE_MAX_SIZE * 8) % EF_WRITE_GRAN == 0);
 
     if (init_ok) {
         return EF_NO_ERR;
     }
+
+#ifdef EF_ENV_USING_CACHE
+    for (i = 0; i < EF_SECTOR_CACHE_TABLE_SIZE; i++) {
+        sector_cache_table[i].addr = FAILED_ADDR;
+    }
+    for (i = 0; i < EF_ENV_CACHE_TABLE_SIZE; i++) {
+        env_cache_table[i].addr = FAILED_ADDR;
+    }
+#endif /* EF_ENV_USING_CACHE */
 
     env_start_addr = EF_START_ADDR;
     default_env_set = default_env;
