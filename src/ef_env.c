@@ -495,7 +495,11 @@ static uint32_t find_next_env_addr(uint32_t start, uint32_t end)
     for (; start < end; start += (sizeof(buf) - sizeof(uint32_t))) {
         ef_port_read(start, (uint32_t *) buf, sizeof(buf));
         for (i = 0; i < sizeof(buf) - sizeof(uint32_t) && start + i < end; i++) {
+#ifndef EF_BIG_ENDIAN            /* Little Endian Order */
             magic = buf[i] + (buf[i + 1] << 8) + (buf[i + 2] << 16) + (buf[i + 3] << 24);
+#else                       // Big Endian Order
+            magic = buf[i + 3] + (buf[i + 2] << 8) + (buf[i + 1] << 16) + (buf[i] << 24);
+#endif
             if (magic == ENV_MAGIC_WORD && (start + i - ENV_MAGIC_OFFSET) >= start_bak) {
                 return start + i - ENV_MAGIC_OFFSET;
             }
@@ -1690,9 +1694,6 @@ EfErrCode ef_load_env(void)
     struct sector_meta_data sector;
     size_t check_failed_count = 0;
 
-    /* lock the ENV cache */
-    ef_port_env_lock();
-
     in_recovery_check = true;
     /* check all sector header */
     sector_iterator(&sector, SECTOR_STORE_UNUSED, &check_failed_count, NULL, check_sec_hdr_cb, false);
@@ -1701,6 +1702,9 @@ EfErrCode ef_load_env(void)
         EF_INFO("Warning: All sector header check failed. Set it to default.\n");
         ef_env_set_default();
     }
+    
+    /* lock the ENV cache */
+    ef_port_env_lock();
     /* check all sector header for recovery GC */
     sector_iterator(&sector, SECTOR_STORE_UNUSED, NULL, NULL, check_and_recovery_gc_cb, false);
 
