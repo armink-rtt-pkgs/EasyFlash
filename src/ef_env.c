@@ -228,6 +228,14 @@ struct sector_cache_node {
 };
 typedef struct sector_cache_node *sector_cache_node_t;
 
+
+struct env_iterator_obj
+{
+    struct sector_meta_data sector;
+    struct env_meta_data env;
+};
+typedef struct env_iterator_obj *env_iterator_obj_t;
+
 static void gc_collect(void);
 
 /* ENV start address in flash */
@@ -821,6 +829,79 @@ static size_t get_env(const char *key, void *value_buf, size_t buf_len, size_t *
     }
 
     return read_len;
+}
+
+static struct env_iterator_obj obj;
+/**
+ * @brief 从头开始遍历
+ *
+ */
+void env_iterator_to_first()
+{
+    obj.sector.addr = FAILED_ADDR;
+    obj.env.addr.start = FAILED_ADDR;
+}
+/**
+ * @brief 返回下一个环境变量
+ *
+ * @param env 环境变量存储地址
+ * @return char 1：遍历完成，0：任然存在数据
+ */
+char env_iterator_next(char *key, void *value_buf, size_t *value_len)
+{
+    uint32_t sec_addr;
+    ef_port_env_lock();
+    if (obj.sector.addr == FAILED_ADDR)
+    {
+_reload:
+        if ((sec_addr = get_next_sector_addr(&obj.sector)) == FAILED_ADDR)
+        {
+            ef_port_env_unlock();
+            return 1;
+        }
+        if (read_sector_meta_data(sec_addr, &obj.sector, false) != EF_NO_ERR)
+        {
+            goto _reload;
+        }
+    }
+
+    if (obj.sector.status.store == SECTOR_STORE_USING || obj.sector.status.store == SECTOR_STORE_FULL)
+    {
+        /* search all ENV */
+_next:
+        if ((obj.env.addr.start = get_next_env_addr(&obj.sector, &obj.env)) != FAILED_ADDR)
+        {
+            read_env(&obj.env);
+            /* iterator is interrupted when callback return true */
+            if (obj.env.status == ENV_WRITE)
+            {
+                //key = obj.env.name;
+                memcpy(key, obj.env.name, obj.env.name_len);
+                key[obj.env.name_len] = 0;
+                *value_len = obj.env.value_len;
+                ef_port_read(obj.env.addr.value, (uint32_t *) value_buf, *value_len);
+
+                ef_port_env_unlock();
+                return 0;
+            }
+            else
+            {
+                goto _next;
+            }
+
+        }
+        else
+        {
+            goto _reload;
+        }
+
+    }
+    else
+    {
+        goto _reload;
+    }
+
+
 }
 
 /**

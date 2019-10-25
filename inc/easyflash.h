@@ -150,7 +150,8 @@ void ef_port_env_unlock(void);
 void ef_log_debug(const char *file, const long line, const char *format, ...);
 void ef_log_info(const char *format, ...);
 void ef_print(const char *format, ...);
-
+void env_iterator_to_first(void);
+char env_iterator_next(char *key,void *value_buf, size_t *value_len);
 #ifdef __cplusplus
 }
 #endif
