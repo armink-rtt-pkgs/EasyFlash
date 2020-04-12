@@ -711,13 +711,13 @@ static bool find_env_cb(env_node_obj_t env, void *arg1, void *arg2)
 {
     const char *key = arg1;
     bool *find_ok = arg2;
-    uint8_t max_len = strlen(key);
+    size_t key_len = strlen(key);
 
-    if (max_len < env->name_len) {
-        max_len = env->name_len;
+    if (key_len != env->name_len) {
+        return false;
     }
     /* check ENV */
-    if (env->crc_is_ok && env->status == ENV_WRITE && !strncmp(env->name, key, max_len)) {
+    if (env->crc_is_ok && env->status == ENV_WRITE && !strncmp(env->name, key, key_len)) {
         *find_ok = true;
         return true;
     }
@@ -1095,8 +1095,14 @@ static EfErrCode del_env(const char *key, env_node_obj_t old_env, bool complete_
 
         if (!last_is_complete_del && result == EF_NO_ERR) {
 #ifdef EF_ENV_USING_CACHE
-            /* only delete the ENV in flash and cache when only using del_env(key, env, true) in ef_del_env() */
-            update_env_cache(key, strlen(key), FAILED_ADDR);
+            /* delete the ENV in flash and cache */
+            if (key != NULL) {
+                /* when using del_env(key, NULL, true) or del_env(key, env, true) in ef_del_env() and set_env() */
+                update_env_cache(key, strlen(key), FAILED_ADDR);
+            } else if (old_env != NULL) {
+                /* when using del_env(NULL, env, true) in move_env() */
+                update_env_cache(old_env->name, old_env->name_len, FAILED_ADDR);
+            }
 #endif /* EF_ENV_USING_CACHE */
         }
 
