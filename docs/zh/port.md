@@ -229,7 +229,7 @@ static const ef_env default_env_set[] = {
 在配置时需要注意以下几点：
 
 - 1、所有的区域必须按照`EF_ERASE_MIN_SIZE`对齐；
-- 2、环境变量分区大少至少为两倍以上 `EF_ERASE_MIN_SIZE`；
+- 2、环境变量分区大小至少为两倍以上 `EF_ERASE_MIN_SIZE`；
 - 3、从 V4.0 开始 ENV 的模式命名为 NG 模式，V4.0 之前的称之为 LEGACY 遗留模式；
   - 遗留模式已经被废弃，不再建议继续使用；
   - 如果需要继续使用遗留模式，请 EasyFlash 的 V3.X 版本。
